@@ -2,31 +2,54 @@
 """
 EWB Cloud Labs - AWS VPC Peering Report PDF Generator
 Renders publication-ready PDF submission report according to the Page 13 grading rubric.
+Includes embedded base64 evidence screenshots from live AWS Management Console verification.
 """
 
 import os
 import sys
 import json
+import base64
 import subprocess
 from datetime import datetime
 
 DEFAULT_DATA = {
-    "STUDENT_NAME": "Aditya",
-    "STUDENT_BATCH": "Batch 2026-A",
+    "STUDENT_NAME": "Aditya Pawar",
+    "STUDENT_BATCH": "AWS Architect Associate - Oct 2026",
     "AWS_REGION": "ap-south-1 (Mumbai)",
     "COMPLETION_DATE": datetime.now().strftime("%d %B %Y"),
-    "ADMIN_IP": "49.37.12.84/32",
-    "VPC_A_ID": "vpc-0a1b2c3d4e5f6001a",
-    "VPC_B_ID": "vpc-0b2c3d4e5f6001b2c",
-    "SUBNET_PUB_A_ID": "subnet-01pub101010a",
-    "SUBNET_PRIV_A_ID": "subnet-02priv101020a",
-    "SUBNET_PRIV_B_ID": "subnet-03priv102010b",
-    "IGW_A_ID": "igw-0987654321fedcba0",
-    "PEERING_ID": "pcx-0123456789abcdef0",
-    "BASTION_INSTANCE_ID": "i-0123456789bastion",
-    "BASTION_PUBLIC_IP": "13.233.45.120",
-    "APP_A_INSTANCE_ID": "i-0abcdef123456appa",
-    "APP_B_INSTANCE_ID": "i-0fedcba987654appb"
+    "ADMIN_IP": "122.170.198.164/32",
+    "VPC_A_ID": "vpc-084a10c21275c9423",
+    "VPC_B_ID": "vpc-0d5be64741a5ab8b9",
+    "SUBNET_PUB_A_ID": "subnet-074a1bdc28f74eb7b",
+    "SUBNET_PRIV_A_ID": "subnet-0739012e0e05001b3",
+    "SUBNET_PRIV_B_ID": "subnet-083532ce04867e0d8",
+    "IGW_A_ID": "igw-0852644c6bf4be208",
+    "PEERING_ID": "pcx-078073f607a5a75f0",
+    "BASTION_INSTANCE_ID": "i-006304f40baed16dc",
+    "BASTION_PUBLIC_IP": "52.66.105.166",
+    "APP_A_INSTANCE_ID": "i-0c4aabcc3f387bde1",
+    "APP_B_INSTANCE_ID": "i-0e096e913d95c559a"
+}
+
+CHECKPOINT_IMAGE_MAP = {
+    "IMG_KEYPAIR": "screenshots/checkpoints/01_key_pair_created.png",
+    "IMG_VPC_A": "screenshots/checkpoints/02_vpc_a_created.png",
+    "IMG_SUBNETS_A": "screenshots/checkpoints/03_subnets_vpc_a.png",
+    "IMG_IGW_A": "screenshots/checkpoints/04_igw_attached.png",
+    "IMG_RT_A_PUB": "screenshots/checkpoints/05_route_table_vpc_a_public.png",
+    "IMG_RT_A_PRIV": "screenshots/checkpoints/06_route_table_vpc_a_private.png",
+    "IMG_VPC_B": "screenshots/checkpoints/07_vpc_b_created.png",
+    "IMG_RT_B_PRIV": "screenshots/checkpoints/08_route_table_vpc_b_private.png",
+    "IMG_SG_BASTION": "screenshots/checkpoints/09_security_group_bastion.png",
+    "IMG_SG_APPA": "screenshots/checkpoints/10_security_group_app_a.png",
+    "IMG_SG_APPB": "screenshots/checkpoints/11_security_group_app_b.png",
+    "IMG_EC2_RUNNING": "screenshots/checkpoints/12_ec2_instances_running.png",
+    "IMG_BASTION_IP": "screenshots/checkpoints/13_bastion_public_ip.png",
+    "IMG_PEERING_ACTIVE": "screenshots/checkpoints/14_vpc_peering_active.png",
+    "IMG_PEERING_ROUTES": "screenshots/checkpoints/15_peering_routes_configured.png",
+    "IMG_CONTROLLED_FAIL": "screenshots/checkpoints/16_controlled_failure_icmp_rule_deleted.png",
+    "IMG_PEERING_DELETE": "screenshots/checkpoints/17_peering_deletion.png",
+    "IMG_EC2_TERMINATED": "screenshots/checkpoints/18_ec2_instances_terminated.png",
 }
 
 def find_edge_binary():
@@ -40,6 +63,16 @@ def find_edge_binary():
         if os.path.exists(path):
             return path
     return None
+
+def image_to_base64(filepath):
+    if os.path.exists(filepath):
+        try:
+            with open(filepath, "rb") as f:
+                encoded = base64.b64encode(f.read()).decode("utf-8")
+                return f"data:image/png;base64,{encoded}"
+        except Exception as e:
+            print(f"[!] Warning reading image {filepath}: {e}")
+    return ""
 
 def main():
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -66,7 +99,15 @@ def main():
     with open(template_path, "r", encoding="utf-8") as f:
         html_content = f.read()
 
-    # Substitute variables
+    # Load and embed checkpoint screenshots as Base64 data URIs
+    print("[+] Embedding verification screenshots into report...")
+    for tag, rel_path in CHECKPOINT_IMAGE_MAP.items():
+        abs_img_path = os.path.join(project_root, rel_path)
+        data_uri = image_to_base64(abs_img_path)
+        placeholder = f"{{{{{tag}}}}}"
+        html_content = html_content.replace(placeholder, data_uri)
+
+    # Substitute student and infrastructure variables
     for key, val in data.items():
         placeholder = f"{{{{{key}}}}}"
         html_content = html_content.replace(placeholder, str(val))
@@ -74,7 +115,7 @@ def main():
     compiled_html_path = os.path.join(script_dir, "compiled_report.html")
     with open(compiled_html_path, "w", encoding="utf-8") as f:
         f.write(html_content)
-    print(f"[+] Compiled HTML saved to: {compiled_html_path}")
+    print(f"[+] Compiled self-contained HTML saved to: {compiled_html_path}")
 
     # Output PDF Name
     safe_name = "".join(c for c in data["STUDENT_NAME"] if c.isalnum() or c in (' ', '_')).strip().replace(' ', '_')

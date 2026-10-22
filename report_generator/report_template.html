@@ -272,7 +272,7 @@
       </div>
       <div class="meta-item">
         <span class="meta-label">Status</span>
-        <span class="meta-value" style="color: #16a34a;">VERIFIED &amp; COMPLETED (100/100)</span>
+        <span class="meta-value" style="color: #2563eb;">Project Completed &mdash; Awaiting Evaluation</span>
       </div>
     </div>
   </div>
@@ -295,6 +295,11 @@
   
   <div class="callout callout-info">
     <strong>Key Security Characteristic:</strong> Neither <code>ewb-app-a</code> nor <code>ewb-app-b</code> possesses a public IPv4 address or direct internet routing. All remote administration is mediated through <code>ewb-bastion</code> in VPC A's public subnet using OpenSSH <code>ProxyJump</code>.
+  </div>
+
+  <div class="screenshot-frame">
+    <img src="{{IMG_EC2_RUNNING}}" alt="EC2 Compute Inventory Running" style="width: 100%; border-radius: 4px; display: block;">
+    <div class="screenshot-caption">Figure 1: Checkpoint 02 &mdash; Compute Inventory showing ewb-bastion, ewb-app-a, and ewb-app-b passing 3/3 health checks</div>
   </div>
 
   <h4>Resource Inventory Table</h4>
@@ -449,6 +454,16 @@
   <div class="callout callout-success">
     <strong>Longest Prefix Match (LPM):</strong> In <code>ewb-rt-a-public</code>, traffic toward <code>10.20.1.10</code> evaluates <code>10.20.0.0/16</code> (more specific) over the default route <code>0.0.0.0/0</code>, routing SSH ProxyJump traffic directly through the peering connection instead of blackholing it.
   </div>
+
+  <div class="screenshot-frame">
+    <img src="{{IMG_PEERING_ACTIVE}}" alt="VPC Peering Connection Active" style="width: 100%; border-radius: 4px; display: block;">
+    <div class="screenshot-caption">Figure 2: Checkpoint 03 &mdash; VPC Peering Connection ewb-a-b-peer ({{PEERING_ID}}) in Active status connecting VPC A and VPC B</div>
+  </div>
+
+  <div class="screenshot-frame">
+    <img src="{{IMG_PEERING_ROUTES}}" alt="Peering Routes in Route Table" style="width: 100%; border-radius: 4px; display: block;">
+    <div class="screenshot-caption">Figure 3: Checkpoint 04 &mdash; Explicit static peering route added for peer CIDR pointing to {{PEERING_ID}}</div>
+  </div>
 </div>
 
 <div class="page-break"></div>
@@ -511,6 +526,11 @@
       </tr>
     </tbody>
   </table>
+
+  <div class="screenshot-frame">
+    <img src="{{IMG_SG_APPB}}" alt="Security Group App-B Inbound Rules" style="width: 100%; border-radius: 4px; display: block;">
+    <div class="screenshot-caption">Figure 4: Least-Privilege Inbound Rules on ewb-sg-app-b restricted to specific /32 host IPs</div>
+  </div>
 
   <h4>Local SSH Configuration File (~/.ssh/config)</h4>
   <div class="terminal-box">
@@ -625,6 +645,12 @@ PING 10.20.1.10 (10.20.1.10) 56(84) bytes of data.
 --- 10.20.1.10 ping statistics ---
 4 packets transmitted, 0 received, <span class="cmd-fail">100% packet loss</span>, time 3088ms
   </div>
+
+  <div class="screenshot-frame">
+    <img src="{{IMG_CONTROLLED_FAIL}}" alt="Controlled Fault Injection: Deleted ICMP Rule" style="width: 100%; border-radius: 4px; display: block;">
+    <div class="screenshot-caption">Figure 5: Controlled Fault Injection &mdash; Temporary deletion of the ICMP Echo Request inbound rule from ewb-sg-app-b</div>
+  </div>
+
   <p><strong>Technical Analysis:</strong> Although the VPC route table still successfully routed packets to <code>pcx</code> and delivered them to VPC B, the AWS hypervisor firewall (Security Group) dropped the incoming ICMP Echo Request at the virtual network interface of <code>ewb-app-b</code>. Note that SSH connectivity from Bastion remained fully operational during this period, proving port-level granularity.</p>
 
   <h4>Phase B: Recovery Verification</h4>
@@ -667,6 +693,16 @@ PING 10.20.1.10 (10.20.1.10) 56(84) bytes of data.
     <h2 class="section-title">Teardown Evidence &amp; Key Learnings</h2>
   </div>
   <p>Following project completion and evidence capture, all cloud resources were terminated in reverse dependency order (EC2 instances terminated &rarr; Peering connection deleted &rarr; Route tables and subnets disassociated &rarr; IGW detached &rarr; VPCs deleted).</p>
+
+  <div class="screenshot-frame">
+    <img src="{{IMG_PEERING_DELETE}}" alt="Peering Deletion and Route Cleanup" style="width: 100%; border-radius: 4px; display: block;">
+    <div class="screenshot-caption">Figure 6: Clean Teardown &mdash; Deleting the VPC peering connection and automatically purging related route table entries</div>
+  </div>
+
+  <div class="screenshot-frame">
+    <img src="{{IMG_EC2_TERMINATED}}" alt="EC2 Instances Termination" style="width: 100%; border-radius: 4px; display: block;">
+    <div class="screenshot-caption">Figure 7: Final Teardown Evidence &mdash; EC2 instances transitioned to Shutting-down / Terminated to prevent ongoing cloud charges</div>
+  </div>
 
   <div class="callout callout-info">
     <strong>Key Takeaway:</strong> Designing multi-VPC networks in AWS requires synchronized alignment of Layer 3 IP routing (Route Tables), Layer 4 firewalls (Security Groups), and connection topologies. VPC Peering provides high-throughput, low-latency private connectivity, but requires strict understanding of non-transitivity and explicit bidirectional route definitions.

@@ -12,7 +12,14 @@ provider "aws" {
   region = var.aws_region
 }
 
-# 1. VPC A & Subnets
+# Dynamic Availability Zone lookup (uses first available AZ in target region)
+data "aws_availability_zones" "available" {
+  state = "available"
+}
+
+# ==========================================
+# 1. VPC A & Networking (10.10.0.0/16)
+# ==========================================
 resource "aws_vpc" "vpc_a" {
   cidr_block           = "10.10.0.0/16"
   enable_dns_support   = true
@@ -35,7 +42,7 @@ resource "aws_subnet" "public_a" {
   vpc_id                  = aws_vpc.vpc_a.id
   cidr_block              = "10.10.1.0/24"
   map_public_ip_on_launch = true
-  availability_zone       = "${var.aws_region}a"
+  availability_zone       = data.aws_availability_zones.available.names[0]
   tags = {
     Name    = "ewb-a-public"
     Project = "EWB-VPC-Peering"
@@ -46,14 +53,16 @@ resource "aws_subnet" "private_a" {
   vpc_id                  = aws_vpc.vpc_a.id
   cidr_block              = "10.10.2.0/24"
   map_public_ip_on_launch = false
-  availability_zone       = "${var.aws_region}a"
+  availability_zone       = data.aws_availability_zones.available.names[0]
   tags = {
     Name    = "ewb-a-private"
     Project = "EWB-VPC-Peering"
   }
 }
 
-# 2. VPC B & Subnet
+# ==========================================
+# 2. VPC B & Networking (10.20.0.0/16)
+# ==========================================
 resource "aws_vpc" "vpc_b" {
   cidr_block           = "10.20.0.0/16"
   enable_dns_support   = true
@@ -68,35 +77,43 @@ resource "aws_subnet" "private_b" {
   vpc_id                  = aws_vpc.vpc_b.id
   cidr_block              = "10.20.1.0/24"
   map_public_ip_on_launch = false
-  availability_zone       = "${var.aws_region}a"
+  availability_zone       = data.aws_availability_zones.available.names[0]
   tags = {
     Name    = "ewb-b-private"
     Project = "EWB-VPC-Peering"
   }
 }
 
-# 3. Peering Connection
+# ==========================================
+# 3. VPC Peering Connection
+# ==========================================
 resource "aws_vpc_peering_connection" "peer" {
-  vpc_id        = aws_vpc.vpc_a.id
-  peer_vpc_id   = aws_vpc.vpc_b.id
-  auto_accept   = true
+  vpc_id      = aws_vpc.vpc_a.id
+  peer_vpc_id = aws_vpc.vpc_b.id
+  auto_accept = true
   tags = {
     Name    = "ewb-a-b-peer"
     Project = "EWB-VPC-Peering"
   }
 }
 
-# 4. Route Tables & Routes
+# ==========================================
+# 4. Route Tables & Peering Routes
+# ==========================================
+# Public Route Table (VPC A)
 resource "aws_route_table" "rt_a_public" {
   vpc_id = aws_vpc.vpc_a.id
+
   route {
     cidr_block = "0.0.0.0/0"
     gateway_id = aws_internet_gateway.igw_a.id
   }
+
   route {
     cidr_block                = "10.20.0.0/16"
     vpc_peering_connection_id = aws_vpc_peering_connection.peer.id
   }
+
   tags = {
     Name    = "ewb-rt-a-public"
     Project = "EWB-VPC-Peering"
@@ -108,12 +125,15 @@ resource "aws_route_table_association" "rta_public_a" {
   route_table_id = aws_route_table.rt_a_public.id
 }
 
+# Private Route Table (VPC A)
 resource "aws_route_table" "rt_a_private" {
   vpc_id = aws_vpc.vpc_a.id
+
   route {
     cidr_block                = "10.20.0.0/16"
     vpc_peering_connection_id = aws_vpc_peering_connection.peer.id
   }
+
   tags = {
     Name    = "ewb-rt-a-private"
     Project = "EWB-VPC-Peering"
@@ -125,12 +145,15 @@ resource "aws_route_table_association" "rta_private_a" {
   route_table_id = aws_route_table.rt_a_private.id
 }
 
+# Private Route Table (VPC B)
 resource "aws_route_table" "rt_b_private" {
   vpc_id = aws_vpc.vpc_b.id
+
   route {
     cidr_block                = "10.10.0.0/16"
     vpc_peering_connection_id = aws_vpc_peering_connection.peer.id
   }
+
   tags = {
     Name    = "ewb-rt-b-private"
     Project = "EWB-VPC-Peering"
@@ -142,14 +165,16 @@ resource "aws_route_table_association" "rta_private_b" {
   route_table_id = aws_route_table.rt_b_private.id
 }
 
+# ==========================================
 # 5. Security Groups
+# ==========================================
 resource "aws_security_group" "sg_bastion" {
   name        = "ewb-sg-bastion"
-  description = "Bastion SG"
+  description = "Security group for Bastion jump host in VPC A"
   vpc_id      = aws_vpc.vpc_a.id
 
   ingress {
-    description = "SSH from Admin"
+    description = "SSH administrative access from trusted admin CIDR"
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
@@ -157,6 +182,7 @@ resource "aws_security_group" "sg_bastion" {
   }
 
   egress {
+    description = "Allow all outbound traffic"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
@@ -171,11 +197,11 @@ resource "aws_security_group" "sg_bastion" {
 
 resource "aws_security_group" "sg_app_a" {
   name        = "ewb-sg-app-a"
-  description = "App A SG"
+  description = "Security group for App-A in VPC A"
   vpc_id      = aws_vpc.vpc_a.id
 
   ingress {
-    description = "SSH from Bastion"
+    description = "SSH from Bastion private IP"
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
@@ -183,7 +209,7 @@ resource "aws_security_group" "sg_app_a" {
   }
 
   ingress {
-    description = "ICMP Echo Request from App-B"
+    description = "ICMP Echo Request from App-B private IP over peering"
     from_port   = 8
     to_port     = 0
     protocol    = "icmp"
@@ -191,6 +217,7 @@ resource "aws_security_group" "sg_app_a" {
   }
 
   egress {
+    description = "Allow all outbound traffic"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
@@ -205,11 +232,11 @@ resource "aws_security_group" "sg_app_a" {
 
 resource "aws_security_group" "sg_app_b" {
   name        = "ewb-sg-app-b"
-  description = "App B SG"
+  description = "Security group for App-B in VPC B"
   vpc_id      = aws_vpc.vpc_b.id
 
   ingress {
-    description = "SSH from Bastion"
+    description = "SSH from Bastion private IP"
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
@@ -217,7 +244,7 @@ resource "aws_security_group" "sg_app_b" {
   }
 
   ingress {
-    description = "ICMP Echo Request from App-A"
+    description = "ICMP Echo Request from App-A private IP over peering"
     from_port   = 8
     to_port     = 0
     protocol    = "icmp"
@@ -225,6 +252,7 @@ resource "aws_security_group" "sg_app_b" {
   }
 
   egress {
+    description = "Allow all outbound traffic"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
@@ -237,7 +265,9 @@ resource "aws_security_group" "sg_app_b" {
   }
 }
 
-# AMI lookup for Amazon Linux 2023
+# ==========================================
+# 6. AMI & EC2 Compute Instances
+# ==========================================
 data "aws_ami" "al2023" {
   most_recent = true
   owners      = ["amazon"]
@@ -247,7 +277,6 @@ data "aws_ami" "al2023" {
   }
 }
 
-# 6. EC2 Instances
 resource "aws_instance" "bastion" {
   ami                         = data.aws_ami.al2023.id
   instance_type               = var.instance_type
